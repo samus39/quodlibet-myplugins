@@ -46,19 +46,17 @@ class LyricsWindow(EventPlugin):
 
     _window = None
 
-    class Win(Gtk.Window):
     #class Win(Window, util.InstanceTracker, PersistentWindowMixin):
-        TEXT_CSS = '* { background-color: rgba(12, 8, 24, 0.5); color: rgba(255, 255, 200, 1); padding: 10px; }'.encode('utf-8')
-        APP_CSS = '* { background-color: rgba(0, 0, 0, 0); }'.encode('utf-8')
+    class Win(Gtk.Window):
+        #TEXT_CSS = '* { background-color: rgba(12, 8, 24, 0.5); color: rgba(255, 255, 200, 1); padding: 10px; }'.encode('utf-8')
+        TEXT_CSS = '* { background-color: transparent; color: rgba(255, 255, 200, 1); padding: 10px; }'.encode('utf-8')
+        APP_CSS = '* { background-color: rgba(12, 8, 24, 0.75); }'.encode('utf-8')
         #APP_CSS = '* { background-color: transparent; }'.encode('utf-8')
-        #APP_CSS = '* { background-color: rgba(12, 8, 24, 0.5); }'.encode('utf-8')
 
-        GRAB_BORDER = 16  # リサイズ検出幅(px)
+        GRAB_BORDER = 24  # リサイズ検出幅(px)
 
-        scrolled_window = None
-        # adjustment = None
+        scrolled = None
         textview = None
-        # textbuffer = None
 
         def __init__(self):
             Gtk.Window.__init__(self)
@@ -68,7 +66,6 @@ class LyricsWindow(EventPlugin):
             self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
             self.set_destroy_with_parent(True)
             #self.set_focus_visible(False)
-            self.connect("delete_event", self.on_destroy)
 
             x = config.getint("plugins", LyricsWindow.CONFIG_X, 2600)
             y = config.getint("plugins", LyricsWindow.CONFIG_Y, 0)
@@ -83,26 +80,29 @@ class LyricsWindow(EventPlugin):
             if visual != None and screen.is_composited():
                 self.set_visual(visual)
 
-            self.scrolled_window = Gtk.ScrolledWindow()
-            self.scrolled_window.set_policy(
+            self.scrolled = Gtk.ScrolledWindow()
+            self.scrolled.set_policy(
                 Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC
             )
-            # self.adjustment = self.scrolled_window.get_vadjustment()
             self.textview = Gtk.TextView()
-            # self.textbuffer = self.textview.get_buffer()
             self.textview.set_editable(False)
             self.textview.set_cursor_visible(False)
             self.textview.set_wrap_mode(Gtk.WrapMode.WORD)
-            #self.textview.set_justification(Gtk.Justification.CENTER)
             add_css(self.textview, self.TEXT_CSS)
-            self.scrolled_window.add(self.textview)
-            self.add(self.scrolled_window)
-
-            #provider = Gtk.CssProvider()
-            #provider.load_from_data(self.APP_CSS)
-            #context = self.get_style_context()
-            #context.add_provider_for_screen(self.textview.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
             add_css(self, self.APP_CSS)
+
+            self.textview.set_sensitive(True)
+            self.scrolled.set_sensitive(True)
+            self.set_sensitive(True)
+            # self.scrolled.set_focus_child(self.textview)
+            # self.scrolled.set_can_focus(True)
+            # self.textview.set_can_focus(True)
+            # self.textview.set_accepts_tab(False)
+            # self.textview.grab_focus()
+
+            self.scrolled.add(self.textview)
+            self.add(self.scrolled)
+            self.show_all()
 
             # シグナルの処理
             self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK |
@@ -110,9 +110,21 @@ class LyricsWindow(EventPlugin):
                             Gdk.EventMask.BUTTON_RELEASE_MASK)
             self.connect('button-press-event', self.on_button_press_event)
             self.connect("motion-notify-event", self.on_motion)
-            #self.resize(self.pixbuf.get_width(), self.pixbuf.get_height())
-            #self.show_all()
-            self.activate()
+            self.connect("delete-event", self.on_destroy)
+            # self.connect("destroy", self.on_destroy)
+
+            # self.scrolled.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
+            # self.scrolled.connect("motion-notify-event", self.on_motion2)
+            # self.textview.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
+            # self.textview.connect("motion-notify-event", self.on_motion2)
+
+            # self.activate()
+
+        def on_motion2(self, widget, event):
+            display = Gdk.Display.get_default()
+            cursor = Gdk.Cursor.new_from_name(display, "move")
+            self.get_window().set_cursor(cursor)
+            return True
 
         def update_lyrics(self, lyrics):
             ####### self.hide()
@@ -160,12 +172,6 @@ class LyricsWindow(EventPlugin):
                 table.add(right_tag)
             buffer.apply_tag(right_tag, last_start, end)
 
-            # self.adjustment.set_value(0)  # Scroll to the top.
-            # self.set_skip_taskbar_hint(True)
-            # self.set_skip_pager_hint(True)
-            self.textview.set_sensitive(True)
-            self.scrolled_window.set_sensitive(True)
-            self.set_sensitive(True)
             self.show_all()
             #self.activate()
 
@@ -193,7 +199,8 @@ class LyricsWindow(EventPlugin):
 
         def on_motion(self, widget, event):
             # カーソル形状を端で変更する（任意）
-            alloc = self.get_allocation()
+            alloc = widget.get_allocation()
+            # print("width:" + str(alloc.width) + " height:" + str(alloc.height))
             edge = self.get_edge_from_pos(event.x, event.y, alloc.width, alloc.height)
             display = Gdk.Display.get_default()
             if edge is None:
@@ -201,24 +208,26 @@ class LyricsWindow(EventPlugin):
             else:
                 # 簡易マッピング（名称は環境依存）
                 mapping = {
-                    Gdk.WindowEdge.NORTH: "ns-resize",
-                    Gdk.WindowEdge.SOUTH: "ns-resize",
-                    Gdk.WindowEdge.WEST: "ew-resize",
-                    Gdk.WindowEdge.EAST: "ew-resize",
-                    Gdk.WindowEdge.NORTH_WEST: "nwse-resize",
-                    Gdk.WindowEdge.NORTH_EAST: "nesw-resize",
-                    Gdk.WindowEdge.SOUTH_WEST: "nesw-resize",
-                    Gdk.WindowEdge.SOUTH_EAST: "nwse-resize",
+                    Gdk.WindowEdge.NORTH: "n-resize",
+                    Gdk.WindowEdge.SOUTH: "s-resize",
+                    Gdk.WindowEdge.WEST: "w-resize",
+                    Gdk.WindowEdge.EAST: "e-resize",
+                    Gdk.WindowEdge.NORTH_WEST: "nw-resize",
+                    Gdk.WindowEdge.NORTH_EAST: "ne-resize",
+                    Gdk.WindowEdge.SOUTH_WEST: "sw-resize",
+                    Gdk.WindowEdge.SOUTH_EAST: "se-resize",
                 }
                 cursor_name = mapping.get(edge, "move")
-            # try:
+            # try
+            # print("cursorname:" + cursor_name)
             cursor = Gdk.Cursor.new_from_name(display, cursor_name)
             #cursor.get_cursor_type()
-            self.get_window().set_cursor(cursor)
+            # print("cursor:" + str(cursor))
+            self.textview.get_window(Gtk.TextWindowType.TEXT).set_cursor(cursor)
             # except Exception:
             #     # 古い環境では new_from_name が無い場合もある
             #     pass
-            #return False
+            return False
 
         def get_edge_from_pos(self, x, y, width, height):
             left = x <= self.GRAB_BORDER
@@ -252,6 +261,12 @@ class LyricsWindow(EventPlugin):
 
     def disabled(self):
         if self._window:
+            (x, y) = self._window.get_position()
+            (width, height) = self._window.get_size()
+            config.set("plugins", LyricsWindow.CONFIG_X, str(x))
+            config.set("plugins", LyricsWindow.CONFIG_Y, str(y))
+            config.set("plugins", LyricsWindow.CONFIG_WIDTH, str(width))
+            config.set("plugins", LyricsWindow.CONFIG_HEIGHT, str(height))
             self._window.close()
             self._window = None
 
