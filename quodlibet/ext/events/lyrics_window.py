@@ -1,5 +1,4 @@
-# Copyright 2011 Christoph Reiter <reiter.christoph@gmail.com>
-# Copyright 2020 Antigone <mail@antigone.xyz>
+# Copyright 2026 Takashi Ueda
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,10 +13,11 @@ from gi.repository import GLib
 from gi.repository import Gtk
 from gi.repository import Gdk
 
-from quodlibet import _
+from quodlibet import _, util
 from quodlibet import app
 from quodlibet import config
 from quodlibet.qltk import Icons
+from quodlibet.plugins import PluginConfigMixin
 from quodlibet.plugins.events import EventPlugin
 
 import re
@@ -30,12 +30,12 @@ from quodlibet.qltk.ccb import ConfigCheckButton
 from quodlibet.qltk.information import Information
 from quodlibet.util.songwrapper import SongWrapper
 
-class LyricsWindow(EventPlugin):
+class LyricsWindow(EventPlugin, PluginConfigMixin):
     PLUGIN_ID = "lyrics_window"
     PLUGIN_NAME = _("Lyrics Window")
     PLUGIN_DESC = _(
-        "On a freedesktop.org desktop (GNOME, KDE, Xfce, etc.), when a song is playing,"
-        " prevents the computer from suspending."
+        "Shows lyrics on a window."
+        ""
     )
     PLUGIN_ICON = Icons.FORMAT_JUSTIFY_FILL
 
@@ -44,14 +44,16 @@ class LyricsWindow(EventPlugin):
     CONFIG_X = PLUGIN_ID + "_x"
     CONFIG_Y = PLUGIN_ID + "_y"
 
+    CONFIG_TEXT_COLOR = "text_color"
+    CONFIG_BACKGROUND_COLOR = "background_color"
+    DEFAULT_TEXT_COLOR = "rgba(255,255,200,1)"
+    DEFAULT_BACKGROUND_COLOR = "rgba(12,8,24,0.75)"
+
     _window = None
 
-    #class Win(Window, util.InstanceTracker, PersistentWindowMixin):
     class Win(Gtk.Window):
-        #TEXT_CSS = '* { background-color: rgba(12, 8, 24, 0.5); color: rgba(255, 255, 200, 1); padding: 10px; }'.encode('utf-8')
-        TEXT_CSS = '* { background-color: transparent; color: rgba(255, 255, 200, 1); padding: 10px; }'.encode('utf-8')
-        APP_CSS = '* { background-color: rgba(12, 8, 24, 0.75); }'.encode('utf-8')
-        #APP_CSS = '* { background-color: transparent; }'.encode('utf-8')
+        # TEXT_CSS = '* { background-color: transparent; color: rgba(255, 255, 200, 1); padding: 10px; }'.encode('utf-8')
+        # APP_CSS = '* { background-color: rgba(12, 8, 24, 0.75); }'.encode('utf-8')
 
         GRAB_BORDER = 24  # リサイズ検出幅(px)
 
@@ -65,7 +67,6 @@ class LyricsWindow(EventPlugin):
             self.set_skip_pager_hint(True)
             self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
             self.set_destroy_with_parent(True)
-            #self.set_focus_visible(False)
 
             x = config.getint("plugins", LyricsWindow.CONFIG_X, 2600)
             y = config.getint("plugins", LyricsWindow.CONFIG_Y, 0)
@@ -88,17 +89,13 @@ class LyricsWindow(EventPlugin):
             self.textview.set_editable(False)
             self.textview.set_cursor_visible(False)
             self.textview.set_wrap_mode(Gtk.WrapMode.WORD)
-            add_css(self.textview, self.TEXT_CSS)
-            add_css(self, self.APP_CSS)
+            # add_css(self.textview, self.TEXT_CSS)
+            # add_css(self, self.APP_CSS)
+            self.config_changed()
 
             self.textview.set_sensitive(True)
             self.scrolled.set_sensitive(True)
             self.set_sensitive(True)
-            # self.scrolled.set_focus_child(self.textview)
-            # self.scrolled.set_can_focus(True)
-            # self.textview.set_can_focus(True)
-            # self.textview.set_accepts_tab(False)
-            # self.textview.grab_focus()
 
             self.scrolled.add(self.textview)
             self.add(self.scrolled)
@@ -111,23 +108,26 @@ class LyricsWindow(EventPlugin):
             self.connect('button-press-event', self.on_button_press_event)
             self.connect("motion-notify-event", self.on_motion)
             self.connect("delete-event", self.on_destroy)
-            # self.connect("destroy", self.on_destroy)
 
-            # self.scrolled.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
-            # self.scrolled.connect("motion-notify-event", self.on_motion2)
-            # self.textview.add_events(Gdk.EventMask.POINTER_MOTION_MASK)
-            # self.textview.connect("motion-notify-event", self.on_motion2)
-
-            # self.activate()
-
-        def on_motion2(self, widget, event):
-            display = Gdk.Display.get_default()
-            cursor = Gdk.Cursor.new_from_name(display, "move")
-            self.get_window().set_cursor(cursor)
-            return True
+        def config_changed(self):
+            add_css(self.textview,
+                f"""
+                * {{
+                    background-color: transparent;
+                    color: {LyricsWindow._get_text_color()};
+                    padding: 10px;
+                }}
+                """
+            )
+            add_css(self,
+                f"""
+                * {{
+                    background-color: {LyricsWindow._get_background_color()};
+                }}
+                """
+            )
 
         def update_lyrics(self, lyrics):
-            ####### self.hide()
             buffer = self.textview.get_buffer()
             buffer.set_text(lyrics + "\n♬")
 
@@ -154,17 +154,6 @@ class LyricsWindow(EventPlugin):
                 # 最後の改行の直後が最後の行の先頭
                 last_start = match_end
 
-            # もし末尾が改行で終わるなら最後の行は空行なので、その前の行を使う
-            # if last_start.equal(end):
-            #     # バッファ末尾が改行で終わる場合、前の改行をもう一度検索
-            #     search_iter = last_start.copy()
-            #     found2 = search_iter.backward_search("\n", Gtk.TextSearchFlags.TEXT_ONLY, None)
-            #     if found2 is None:
-            #         last_start = buf.get_start_iter()
-            #     else:
-            #         match_start2, match_end2 = found2
-            #         last_start = match_end2
-
             right_tag = table.lookup("right")
             if not right_tag:
                 right_tag = Gtk.TextTag.new("right")
@@ -173,7 +162,6 @@ class LyricsWindow(EventPlugin):
             buffer.apply_tag(right_tag, last_start, end)
 
             self.show_all()
-            #self.activate()
 
         def on_destroy(self, widget, event):
             (x, y) = self.get_position()
@@ -200,7 +188,6 @@ class LyricsWindow(EventPlugin):
         def on_motion(self, widget, event):
             # カーソル形状を端で変更する（任意）
             alloc = widget.get_allocation()
-            # print("width:" + str(alloc.width) + " height:" + str(alloc.height))
             edge = self.get_edge_from_pos(event.x, event.y, alloc.width, alloc.height)
             display = Gdk.Display.get_default()
             if edge is None:
@@ -218,15 +205,8 @@ class LyricsWindow(EventPlugin):
                     Gdk.WindowEdge.SOUTH_EAST: "se-resize",
                 }
                 cursor_name = mapping.get(edge, "move")
-            # try
-            # print("cursorname:" + cursor_name)
             cursor = Gdk.Cursor.new_from_name(display, cursor_name)
-            #cursor.get_cursor_type()
-            # print("cursor:" + str(cursor))
             self.textview.get_window(Gtk.TextWindowType.TEXT).set_cursor(cursor)
-            # except Exception:
-            #     # 古い環境では new_from_name が無い場合もある
-            #     pass
             return False
 
         def get_edge_from_pos(self, x, y, width, height):
@@ -301,3 +281,77 @@ class LyricsWindow(EventPlugin):
             if self._window:
                 self._window.close()
                 self._window = None
+
+    def PluginPreferences(self, parent):
+        vb = Gtk.VBox(spacing=6)
+        vb.set_border_width(6)
+
+        t = Gtk.Table(n_rows=5, n_columns=2, homogeneous=True)
+        t.set_col_spacings(6)
+        t.set_row_spacings(3)
+
+        clr_section = Gtk.Label()
+        clr_section.set_markup(util.bold(_("Colors")))
+        t.attach(clr_section, 0, 2, 0, 1)
+
+        l = Gtk.Label(label=_("Text:"))
+        l.set_alignment(xalign=1.0, yalign=0.5)
+        t.attach(l, 0, 1, 1, 2, xoptions=Gtk.AttachOptions.FILL)
+
+        c = Gdk.RGBA()
+        c.parse(self._get_text_color())
+        b = Gtk.ColorButton(rgba=c)
+        b.set_use_alpha(True)
+        t.attach(b, 1, 2, 1, 2)
+        b.connect("color-set", self._set_text_color)
+
+        l = Gtk.Label(label=_("Background:"))
+        l.set_alignment(xalign=1.0, yalign=0.5)
+        t.attach(l, 0, 1, 2, 3, xoptions=Gtk.AttachOptions.FILL)
+
+        c = Gdk.RGBA()
+        c.parse(self._get_background_color())
+        b = Gtk.ColorButton(rgba=c)
+        b.set_use_alpha(True)
+        t.attach(b, 1, 2, 2, 3)
+        b.connect("color-set", self._set_background_color)
+
+        font_section = Gtk.Label()
+        font_section.set_markup(util.bold(_("Font")))
+        t.attach(font_section, 0, 2, 3, 4)
+
+        l = Gtk.Label(label=_("Size (px):"))
+        l.set_alignment(xalign=1.0, yalign=0.5)
+        t.attach(l, 0, 1, 4, 5, xoptions=Gtk.AttachOptions.FILL)
+
+        a = Gtk.Adjustment.new(self._get_font_size(), 10, 72, 2, 3, 0)
+        s = Gtk.SpinButton(adjustment=a)
+        s.set_numeric(True)
+        # s.set_text(str(self._get_font_size()))
+        t.attach(s, 1, 2, 4, 5)
+        # s.connect("value-changed", self._set_font_size)
+
+        vb.pack_start(t, False, False, 0)
+        return vb
+
+    @classmethod
+    def _get_text_color(cls):
+        return cls.config_get(cls.CONFIG_TEXT_COLOR, cls.DEFAULT_TEXT_COLOR)
+
+    def _set_text_color(self, button):
+        self.config_set(self.CONFIG_TEXT_COLOR, button.get_rgba().to_string())
+        if self._window:
+            self._window.config_changed()
+
+    @classmethod
+    def _get_background_color(cls):
+        return cls.config_get(cls.CONFIG_BACKGROUND_COLOR, cls.DEFAULT_BACKGROUND_COLOR)
+
+    def _set_background_color(self, button):
+        self.config_set(self.CONFIG_BACKGROUND_COLOR, button.get_rgba().to_string())
+        if self._window:
+            self._window.config_changed()
+
+    @classmethod
+    def _get_font_size(cls):
+        return 16
