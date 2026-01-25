@@ -46,8 +46,10 @@ class LyricsWindow(EventPlugin, PluginConfigMixin):
 
     CONFIG_TEXT_COLOR = "text_color"
     CONFIG_BACKGROUND_COLOR = "background_color"
+    CONFIG_FONT_SIZE = "font_size"
     DEFAULT_TEXT_COLOR = "rgba(255,255,200,1)"
     DEFAULT_BACKGROUND_COLOR = "rgba(12,8,24,0.75)"
+    DEFAULT_FONT_SIZE = "16"
 
     _window = None
 
@@ -115,6 +117,7 @@ class LyricsWindow(EventPlugin, PluginConfigMixin):
                 * {{
                     background-color: transparent;
                     color: {LyricsWindow._get_text_color()};
+                    font-size: {LyricsWindow._get_font_size()}px;
                     padding: 10px;
                 }}
                 """
@@ -128,6 +131,7 @@ class LyricsWindow(EventPlugin, PluginConfigMixin):
             )
 
         def update_lyrics(self, lyrics):
+            # TODO: {宇宙|そら} -> 宇宙<span baseline_shift='superscript' font_scale='superscript'>そら</span>
             buffer = self.textview.get_buffer()
             buffer.set_text(lyrics + "\n♬")
 
@@ -191,7 +195,7 @@ class LyricsWindow(EventPlugin, PluginConfigMixin):
             edge = self.get_edge_from_pos(event.x, event.y, alloc.width, alloc.height)
             display = Gdk.Display.get_default()
             if edge is None:
-                cursor_name = "move"
+                cursor_name = "default"
             else:
                 # 簡易マッピング（名称は環境依存）
                 mapping = {
@@ -204,7 +208,7 @@ class LyricsWindow(EventPlugin, PluginConfigMixin):
                     Gdk.WindowEdge.SOUTH_WEST: "sw-resize",
                     Gdk.WindowEdge.SOUTH_EAST: "se-resize",
                 }
-                cursor_name = mapping.get(edge, "move")
+                cursor_name = mapping.get(edge, "default")
             cursor = Gdk.Cursor.new_from_name(display, cursor_name)
             self.textview.get_window(Gtk.TextWindowType.TEXT).set_cursor(cursor)
             return False
@@ -324,12 +328,12 @@ class LyricsWindow(EventPlugin, PluginConfigMixin):
         l.set_alignment(xalign=1.0, yalign=0.5)
         t.attach(l, 0, 1, 4, 5, xoptions=Gtk.AttachOptions.FILL)
 
-        a = Gtk.Adjustment.new(self._get_font_size(), 10, 72, 2, 3, 0)
+        a = Gtk.Adjustment.new(self._get_font_size(), 10, 72, 1, 3, 0)
         s = Gtk.SpinButton(adjustment=a)
         s.set_numeric(True)
         # s.set_text(str(self._get_font_size()))
         t.attach(s, 1, 2, 4, 5)
-        # s.connect("value-changed", self._set_font_size)
+        s.connect("value-changed", self._set_font_size)
 
         vb.pack_start(t, False, False, 0)
         return vb
@@ -354,4 +358,9 @@ class LyricsWindow(EventPlugin, PluginConfigMixin):
 
     @classmethod
     def _get_font_size(cls):
-        return 16
+        return int(cls.config_get(cls.CONFIG_FONT_SIZE, cls.DEFAULT_FONT_SIZE))
+
+    def _set_font_size(self, spin):
+        self.config_set(self.CONFIG_FONT_SIZE, str(spin.get_value_as_int()))
+        if self._window:
+            self._window.config_changed()
