@@ -107,8 +107,10 @@ class GstPlayerPreferences(Gtk.VBox):
         hb = self._create_buffer_box(buffer_label, scale)
         self.pack_start(hb, False, False, 0)
         self.pack_start(gapless_button, False, False, 0)
-        self.pack_start(jack_button, False, False, 0)
-        self.pack_start(jack_connect, False, False, 0)
+
+        if not is_windows():
+            self.pack_start(jack_button, False, False, 0)
+            self.pack_start(jack_connect, False, False, 0)
 
         exclusive_button = ConfigSwitch(
             _("Exclusive Mode"),
